@@ -1,0 +1,400 @@
+/* main.pgc */
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include <locale>
+#include <cstdlib>
+#include <codecvt>
+/* Подключаем sqlca для обработки ошибок Embedded SQL */
+EXEC SQL INCLUDE sqlca;
+
+/* Константы для размеров строк */
+#define TITLE_MAX_LEN 256
+#define GENRE_MAX_LEN 100
+#define DESCRIPTION_MAX_LEN 512
+#define FORMAT_MAX_LEN 10
+#define DATE_STR_LEN 11
+#define _CRT_SECURE_NO_WARNINGS
+
+/* Структура для хранения данных фильма (используется только для локальных нужд C) */
+typedef struct {
+    int id;
+    char title[TITLE_MAX_LEN];
+    char genre[GENRE_MAX_LEN];
+    int duration;
+    char description[DESCRIPTION_MAX_LEN];
+    int age_limit;
+    char format[FORMAT_MAX_LEN];
+    char premiere_date[DATE_STR_LEN];
+} Movie;
+
+/* Функция для очистки входного потока */
+void clear_input_buffer(void) {
+    int c;
+    while ((c = getchar()) != '\n' && c != EOF);
+}
+
+/* 
+   Функция для поиска фильма по названию: 
+   вызывается хранимая функция sp_search_movie_by_title и результаты выводятся из курсора.
+*/
+void search_movie(void) {
+    EXEC SQL BEGIN DECLARE SECTION;
+       char search_title[TITLE_MAX_LEN];
+       int movie_id;
+       char movie_title[TITLE_MAX_LEN];
+       char movie_genre[GENRE_MAX_LEN];
+       int movie_duration;
+       char movie_description[DESCRIPTION_MAX_LEN];
+       int movie_age_limit;
+       char movie_format[FORMAT_MAX_LEN];
+       char movie_premiere_date[DATE_STR_LEN];
+    EXEC SQL END DECLARE SECTION;
+
+    printf("Введите часть названия для поиска: ");
+    fgets(search_title, sizeof(search_title), stdin);
+    search_title[strcspn(search_title, "\n")] = '\0';
+
+    /* Открываем курсор для выборки по функции sp_search_movie_by_title */
+    EXEC SQL DECLARE cur_search_movie CURSOR FOR
+        SELECT id, title, genre, duration, description, age_limit, format, premiere_date
+        FROM sp_search_movie_by_title(:search_title);
+
+    EXEC SQL OPEN cur_search_movie;
+
+    printf("Найденные фильмы:\n");
+    printf("--------------------------------------------------------------------------\n");
+
+    while (1) {
+        EXEC SQL FETCH cur_search_movie INTO :movie_id, :movie_title, :movie_genre, :movie_duration,
+                                      :movie_description, :movie_age_limit, :movie_format, :movie_premiere_date;
+        if (sqlca.sqlcode == ECPG_NOT_FOUND || sqlca.sqlcode != 0)
+            break;
+        printf("ID: %d\nНазвание: %s\nЖанр: %s\nДлительность: %d минут\nОписание: %s\nВозрастное ограничение: %d\nФормат: %s\nДата премьеры: %s\n",
+               movie_id, movie_title, movie_genre, movie_duration, movie_description, movie_age_limit, movie_format, movie_premiere_date);
+        printf("--------------------------------------------------------------------------\n");
+    }
+
+    EXEC SQL CLOSE cur_search_movie;
+}
+
+/* Функция для добавления нового фильма */
+void add_movie(void) {
+    EXEC SQL BEGIN DECLARE SECTION;
+       char title[TITLE_MAX_LEN];
+       char genre[GENRE_MAX_LEN];
+       int duration;
+       char description[DESCRIPTION_MAX_LEN];
+       int age_limit;
+       char format[FORMAT_MAX_LEN];
+       char premiere_date[DATE_STR_LEN];
+    EXEC SQL END DECLARE SECTION;
+
+    printf("Введите название фильма: ");
+    fgets(title, sizeof(title), stdin);
+    title[strcspn(title, "\n")] = '\0';
+
+    printf("Введите жанр: ");
+    fgets(genre, sizeof(genre), stdin);
+    genre[strcspn(genre, "\n")] = '\0';
+
+    printf("Введите длительность (в минутах): ");
+    scanf("%d", &duration);
+    clear_input_buffer();
+
+    printf("Введите описание: ");
+    fgets(description, sizeof(description), stdin);
+    description[strcspn(description, "\n")] = '\0';
+
+    printf("Введите возрастное ограничение: ");
+    scanf("%d", &age_limit);
+    clear_input_buffer();
+
+    printf("Введите формат (2D, 3D, IMAX): ");
+    fgets(format, sizeof(format), stdin);
+    format[strcspn(format, "\n")] = '\0';
+
+    printf("Введите дату премьеры (YYYY-MM-DD): ");
+    fgets(premiere_date, sizeof(premiere_date), stdin);
+    premiere_date[strcspn(premiere_date, "\n")] = '\0';
+
+    EXEC SQL CALL sp_add_movie(:title, :genre, :duration, :description, :age_limit, :format, :premiere_date);
+    if (sqlca.sqlcode == 0)
+        printf("Фильм успешно добавлен.\n");
+    else
+        printf("Ошибка при добавлении фильма.\n");
+}
+
+/* Функция для обновления данных фильма по id */
+void update_movie(void) {
+    EXEC SQL BEGIN DECLARE SECTION;
+       int id;
+       char title[TITLE_MAX_LEN];
+       char genre[GENRE_MAX_LEN];
+       int duration;
+       char description[DESCRIPTION_MAX_LEN];
+       int age_limit;
+       char format[FORMAT_MAX_LEN];
+       char premiere_date[DATE_STR_LEN];
+    EXEC SQL END DECLARE SECTION;
+
+    printf("Введите ID фильма для обновления: ");
+    scanf("%d", &id);
+    clear_input_buffer();
+
+    printf("Введите новое название фильма: ");
+    fgets(title, sizeof(title), stdin);
+    title[strcspn(title, "\n")] = '\0';
+
+    printf("Введите новый жанр: ");
+    fgets(genre, sizeof(genre), stdin);
+    genre[strcspn(genre, "\n")] = '\0';
+
+    printf("Введите новую длительность (в минутах): ");
+    scanf("%d", &duration);
+    clear_input_buffer();
+
+    printf("Введите новое описание: ");
+    fgets(description, sizeof(description), stdin);
+    description[strcspn(description, "\n")] = '\0';
+
+    printf("Введите новое возрастное ограничение: ");
+    scanf("%d", &age_limit);
+    clear_input_buffer();
+
+    printf("Введите новый формат (2D, 3D, IMAX): ");
+    fgets(format, sizeof(format), stdin);
+    format[strcspn(format, "\n")] = '\0';
+
+    printf("Введите новую дату премьеры (YYYY-MM-DD): ");
+    fgets(premiere_date, sizeof(premiere_date), stdin);
+    premiere_date[strcspn(premiere_date, "\n")] = '\0';
+
+    EXEC SQL CALL sp_update_movie(:id, :title, :genre, :duration, :description, :age_limit, :format, :premiere_date);
+    if (sqlca.sqlcode == 0)
+        printf("Фильм успешно обновлён.\n");
+    else
+        printf("Ошибка при обновлении фильма.\n");
+}
+
+/* Функция для удаления фильма по названию */
+void delete_movie(void) {
+    EXEC SQL BEGIN DECLARE SECTION;
+       char title[TITLE_MAX_LEN];
+    EXEC SQL END DECLARE SECTION;
+
+    printf("Введите точное название фильма для удаления: ");
+    fgets(title, sizeof(title), stdin);
+    title[strcspn(title, "\n")] = '\0';
+
+    EXEC SQL CALL sp_delete_movie_by_title(:title);
+    if (sqlca.sqlcode == 0)
+        printf("Фильм успешно удалён.\n");
+    else
+        printf("Ошибка при удалении фильма.\n");
+}
+
+/* Функция для очистки таблицы фильмов */
+void clear_movies_table(void) {
+    EXEC SQL CALL sp_clear_movies();
+    if (sqlca.sqlcode == 0)
+        printf("Таблица с фильмами очищена.\n");
+    else
+        printf("Ошибка при очистке таблицы.\n");
+}
+
+/* Функция для создания нового пользователя БД с заданным режимом доступа */
+void create_db_user(void) {
+    EXEC SQL BEGIN DECLARE SECTION;
+       char username[50];
+       char password[50];
+       char mode[10];
+    EXEC SQL END DECLARE SECTION;
+
+    printf("Введите имя нового пользователя: ");
+    fgets(username, sizeof(username), stdin);
+    username[strcspn(username, "\n")] = '\0';
+
+    printf("Введите пароль: ");
+    fgets(password, sizeof(password), stdin);
+    password[strcspn(password, "\n")] = '\0';
+
+    printf("Введите режим доступа (ADMIN / GUEST): ");
+    fgets(mode, sizeof(mode), stdin);
+    mode[strcspn(mode, "\n")] = '\0';
+
+    EXEC SQL CALL sp_create_db_user(:username, :password, :mode);
+    if (sqlca.sqlcode == 0)
+        printf("Новый пользователь создан.\n");
+    else
+        printf("Ошибка при создании пользователя.\n");
+}
+
+/* Функция для вывода режима текущего пользователя */
+void print_user_mode(void) {
+    EXEC SQL BEGIN DECLARE SECTION;
+       char mode[10];
+    EXEC SQL END DECLARE SECTION;
+
+    EXEC SQL SELECT sp_get_user_mode() INTO :mode;
+    if (sqlca.sqlcode == 0)
+        printf("Режим текущего пользователя: %s\n", mode);
+    else
+        printf("Ошибка при определении режима пользователя.\n");
+}
+
+int main(void) {
+    /* Объявляем переменные для подключения */
+    std::setlocale(LC_ALL, "ru");
+    system("chcp 65001");
+    EXEC SQL BEGIN DECLARE SECTION;
+       char db_user[50] = "postgres";
+       char db_password[50] = "1890";
+    EXEC SQL END DECLARE SECTION;
+
+    /* Подключаемся к базе данных moviesdb */
+    EXEC SQL CONNECT TO Cinema0 USER :db_user USING :db_password;
+    if (sqlca.sqlcode != 0) {
+        printf("Ошибка подключения к БД!\n");
+        exit(1);
+    }
+
+    int user_choice, mode_choice;
+
+    printf("Выберите режим доступа:\n");
+    printf("1 - Администратор (полный функционал)\n");
+    printf("2 - Гость (просмотр и поиск фильмов)\n");
+    scanf("%d", &mode_choice);
+    clear_input_buffer();
+    
+    while (1) {
+        if (mode_choice == 1) {
+            printf("\n--- Меню Администратора ---\n");
+            printf("1. Создать базу данных (через sp_create_database)\n");
+            printf("2. Удалить базу данных (через sp_drop_database)\n");
+            printf("3. Очистить таблицу фильмов\n");
+            printf("4. Добавить новый фильм\n");
+            printf("5. Поиск фильма по названию\n");
+            printf("6. Обновить данные фильма\n");
+            printf("7. Удалить фильм по названию\n");
+            printf("8. Создать нового пользователя БД\n");
+            printf("9. Определить режим текущего пользователя\n");
+            printf("0. Выход\n");
+            printf("Выбор: ");
+            scanf("%d", &user_choice);
+            clear_input_buffer();
+
+            switch (user_choice) {
+                case 1: {
+                    EXEC SQL BEGIN DECLARE SECTION;
+                        char dbname[50];
+                    EXEC SQL END DECLARE SECTION;
+                    printf("Введите имя создаваемой базы: ");
+                    fgets(dbname, sizeof(dbname), stdin);
+                    dbname[strcspn(dbname, "\n")] = '\0';
+                    EXEC SQL CALL sp_create_database(:dbname);
+                    if (sqlca.sqlcode == 0)
+                        printf("База данных '%s' успешно создана.\n", dbname);
+                    else
+                        printf("Ошибка создания базы данных '%s'.\n", dbname);
+                    break;
+                }
+                case 2: {
+                    EXEC SQL BEGIN DECLARE SECTION;
+                        char dbname[50];
+                    EXEC SQL END DECLARE SECTION;
+                    printf("Введите имя удаляемой базы: ");
+                    fgets(dbname, sizeof(dbname), stdin);
+                    dbname[strcspn(dbname, "\n")] = '\0';
+                    EXEC SQL CALL sp_drop_database(:dbname);
+                    if (sqlca.sqlcode == 0)
+                        printf("База данных '%s' успешно удалена (если существовала).\n", dbname);
+                    else
+                        printf("Ошибка удаления базы данных '%s'.\n", dbname);
+                    break;
+                }
+                case 3:
+                    clear_movies_table();
+                    break;
+                case 4:
+                    add_movie();
+                    break;
+                case 5:
+                    search_movie();
+                    break;
+                case 6:
+                    update_movie();
+                    break;
+                case 7:
+                    delete_movie();
+                    break;
+                case 8:
+                    create_db_user();
+                    break;
+                case 9:
+                    print_user_mode();
+                    break;
+                case 0:
+                    goto disconnect;
+                default:
+                    printf("Неверный выбор.\n");
+            }
+        } else {  /* Режим гостя */
+            printf("\n--- Меню Гостя ---\n");
+            printf("1. Просмотреть все фильмы (поиск по пустой строке)\n");
+            printf("2. Поиск фильма по названию\n");
+            printf("0. Выход\n");
+            printf("Выбор: ");
+            scanf("%d", &user_choice);
+            clear_input_buffer();
+
+            switch (user_choice) {
+                case 1: {
+                    EXEC SQL BEGIN DECLARE SECTION;
+                        char empty[TITLE_MAX_LEN] = "";
+                        int movie_id;
+                        char movie_title[TITLE_MAX_LEN];
+                        char movie_genre[GENRE_MAX_LEN];
+                        int movie_duration;
+                        char movie_description[DESCRIPTION_MAX_LEN];
+                        int movie_age_limit;
+                        char movie_format[FORMAT_MAX_LEN];
+                        char movie_premiere_date[DATE_STR_LEN];
+                    EXEC SQL END DECLARE SECTION;
+                    EXEC SQL DECLARE cur_movie CURSOR FOR
+                        SELECT id, title, genre, duration, description, age_limit, format, premiere_date
+                        FROM sp_search_movie_by_title(:empty);
+                    
+                    EXEC SQL OPEN cur_movie;
+
+                    printf("Список фильмов:\n");
+                    printf("--------------------------------------------------------------------------\n");
+                    while (1) {
+                        EXEC SQL FETCH cur_movie INTO :movie_id, :movie_title, :movie_genre, :movie_duration,
+                                                      :movie_description, :movie_age_limit, :movie_format, :movie_premiere_date;
+                        if (sqlca.sqlcode == ECPG_NOT_FOUND || sqlca.sqlcode != 0)
+                            break;
+                        printf("ID: %d\nНазвание: %s\nЖанр: %s\nДлительность: %d минут\nОписание: %s\nВозрастное ограничение: %d\nФормат: %s\nДата премьеры: %s\n",
+                               movie_id, movie_title, movie_genre, movie_duration, movie_description, movie_age_limit, movie_format, movie_premiere_date);
+                        printf("--------------------------------------------------------------------------\n");
+                    }
+                    EXEC SQL CLOSE cur_movie;
+                    break;
+                }
+                case 2:
+                    search_movie();
+                    break;
+                case 0:
+                    goto disconnect;
+                default:
+                    printf("Неверный выбор.\n");
+            }
+        }
+    }
+
+disconnect:
+    EXEC SQL DISCONNECT;
+    printf("Завершение работы программы.\n");
+    return 0;
+}
